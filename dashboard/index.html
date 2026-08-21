@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Hybrid Cloud-SDN — Live Load Dashboard</title>
+<style>
+  body { font-family: Arial, sans-serif; background: #14141f; color: #eee; padding: 30px; }
+  h1 { color: #fff; margin-bottom: 4px; }
+  .subtitle { color: #888; margin-bottom: 25px; font-size: 14px; }
+  .status-line { font-size: 20px; margin-bottom: 6px; }
+  .status-line span { font-weight: bold; }
+  .spike-timer { color: #ffca28; font-size: 14px; margin-bottom: 25px; min-height: 18px; }
+  .grid { display: grid; grid-template-columns: 1fr 340px; gap: 30px; align-items: start; }
+  .bar-row { margin-bottom: 22px; }
+  .bar-label { font-size: 15px; margin-bottom: 4px; display: flex; justify-content: space-between; }
+  .bar-track { background: #2a2a3a; border-radius: 6px; height: 30px; width: 100%; overflow: hidden; margin-bottom: 6px; }
+  .bar-fill { height: 100%; transition: width 0.6s ease, background 0.6s ease; }
+  .private { background: #4caf50; }
+  .cloud { background: #2196f3; }
+  .over { background: #e53935; }
+  .active-badge { background: #ffca28; color: #222; padding: 2px 10px; border-radius: 10px; font-size: 12px; margin-left: 8px; }
+  .threshold-note { color: #888; font-size: 13px; margin-top: 10px; }
+  canvas { background: #1c1c2a; border-radius: 6px; display: block; margin-top: 4px; }
+  .panel { background: #1c1c2a; border-radius: 8px; padding: 16px; }
+  .panel h2 { font-size: 15px; margin: 0 0 12px 0; color: #ccc; }
+  .event-item { font-size: 13px; padding: 6px 0; border-bottom: 1px solid #2a2a3a; }
+  .event-item .t { color: #777; margin-right: 8px; }
+  .legend { font-size: 12px; color: #aaa; margin-top: 6px; }
+  .legend span { margin-right: 14px; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+</style>
+</head>
+<body>
+  <h1>Hybrid Cloud-SDN — Live Load Dashboard</h1>
+  <div class="subtitle">Real-time view of the SDN controller's routing decisions</div>
+
+  <div class="status-line">
+    Currently routing new requests to: <span id="decision">—</span>
+    <span id="offload-badge" style="display:none" class="active-badge">CLOUD OFFLOAD ACTIVE</span>
+  </div>
+  <div class="spike-timer" id="spike-timer"></div>
+
+  <div class="grid">
+    <div>
+      <div id="bars"></div>
+      <div class="threshold-note" id="threshold-note"></div>
+
+      <div class="panel" style="margin-top:20px">
+        <h2>Load History (last ~60s)</h2>
+        <canvas id="historyChart" width="640" height="180"></canvas>
+        <div class="legend">
+          <span><span class="dot" style="background:#4caf50"></span>Private A (h2)</span>
+          <span><span class="dot" style="background:#66bb6a"></span>Private B (h3)</span>
+          <span><span class="dot" style="background:#2196f3"></span>Cloud (h4)</span>
+          <span><span class="dot" style="background:#e53935"></span>Threshold</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Event Log</h2>
+      <div id="eventLog"></div>
+    </div>
+  </div>
+
+<script>
+const STATUS_URL = "http://127.0.0.1:8080/status";
+const NAMES = {h2: "Private Server A (h2)", h3: "Private Server B (h3)", h4: "Cloud Server (h4)"};
+const canvas = document.getElementById("historyChart");
+const ctx = canvas.getContext("2d");
+
+function drawHistory(history, threshold) {
+  const w = canvas.width, h = canvas.height;
+  ctx.clearRect(0, 0, w, h);
+  if (history.length < 2) {
+    ctx.fillStyle = "#555";
+    ctx.font = "13px Arial";
+    ctx.fillText("Collecting data...", 10, h/2);
+    return;
+  }
+  const allVals = history.flatMap(p => [p.h2, p.h3, p.h4]);
+  const maxVal = Math.max(threshold * 1.3, ...allVals, 1);
+  const stepX = w / (history.length - 1);
+
+  function yFor(v) { return h - (v / maxVal) * (h - 20) - 10; }
+
+  // threshold line
+  ctx.strokeStyle = "#e53935";
+  ctx.setLineDash([5, 4]);
+  ctx.beginPath();
+  ctx.moveTo(0, yFor(threshold));
+  ctx.lineTo(w, yFor(threshold));
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  function drawLine(key, color) {
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    history.forEach((p, i) => {
+      const x = i * stepX, y = yFor(p[key]);
+      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    });
+    ctx.stroke();
+  }
+  drawLine("h2", "#4caf50");
+  drawLine("h3", "#66bb6a");
+  drawLine("h4", "#2196f3");
+}
+
+async function refresh() {
+  try {
+    const res = await fetch(STATUS_URL);
+    const data = await res.json();
+    const threshold = data.threshold_bytes_per_sec;
+
+    document.getElementById("threshold-note").textContent =
+      "Threshold: " + threshold.toLocaleString() + " B/s";
+    document.getElementById("decision").textContent = data.last_decision || "waiting...";
+    document.getElementById("offload-badge").style.display =
+      data.threshold_exceeded ? "inline-block" : "none";
+
+    const timerDiv = document.getElementById("spike-timer");
+    if (data.spike_duration_sec !== null && data.spike_duration_sec !== undefined) {
+      timerDiv.textContent = "Spike ongoing for " + data.spike_duration_sec + "s";
+    } else {
+      timerDiv.textContent = "";
+    }
+
+    const barsDiv = document.getElementById("bars");
+    barsDiv.innerHTML = "";
+    const maxLoad = Math.max(threshold * 2, ...Object.values(data.backends).map(b => b.load_bytes_per_sec), 1);
+
+    for (const [name, info] of Object.entries(data.backends)) {
+      const pct = Math.min(100, (info.load_bytes_per_sec / maxLoad) * 100);
+      let cls = info.is_cloud ? "cloud" : "private";
+      if (!info.is_cloud && info.load_bytes_per_sec > threshold) cls = "over";
+
+      const row = document.createElement("div");
+      row.className = "bar-row";
+      row.innerHTML = `
+        <div class="bar-label"><span>${NAMES[name] || name}
+          ${data.last_decision === name ? '<span class="active-badge">ACTIVE</span>' : ''}
+        </span><span>${info.load_bytes_per_sec.toLocaleString()} B/s</span></div>
+        <div class="bar-track"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div>
+      `;
+      barsDiv.appendChild(row);
+    }
+
+    drawHistory(data.history, threshold);
+
+    const logDiv = document.getElementById("eventLog");
+    if (data.event_log.length === 0) {
+      logDiv.innerHTML = '<div class="event-item" style="color:#666">No events yet</div>';
+    } else {
+      logDiv.innerHTML = data.event_log.map(e =>
+        `<div class="event-item"><span class="t">${e.time}</span>${e.message}</div>`
+      ).join("");
+    }
+  } catch (e) {
+    document.getElementById("decision").textContent = "controller unreachable";
+  }
+}
+
+setInterval(refresh, 1000);
+refresh();
+</script>
+</body>
+</html>
