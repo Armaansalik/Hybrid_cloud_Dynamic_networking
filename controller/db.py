@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""SQLite persistence layer for the Hybrid Cloud-SDN controller.
-Stores routing-decision events and load samples so history survives
-controller restarts -- this is the project's database layer."""
+"""SQLite persistence layer for the Hybrid Cloud-SDN controller."""
 import sqlite3
 import os
 import time
@@ -69,3 +67,29 @@ def event_count():
 def sample_count():
     cur = _conn.execute('SELECT COUNT(*) FROM load_samples')
     return cur.fetchone()[0]
+
+
+def get_long_history(minutes=60, bucket_seconds=60):
+    """Return load samples from the last `minutes`, averaged into
+    `bucket_seconds`-wide time buckets per backend -- gives a smooth
+    long-term chart instead of thousands of raw points."""
+    cutoff = time.time() - (minutes * 60)
+    cur = _conn.execute(
+        'SELECT ts, backend, load_bytes_per_sec FROM load_samples WHERE ts >= ? ORDER BY ts ASC',
+        (cutoff,)
+    )
+    rows = cur.fetchall()
+
+    buckets = {}
+    for ts, backend, load in rows:
+        bucket_key = int(ts // bucket_seconds) * bucket_seconds
+        buckets.setdefault(bucket_key, {}).setdefault(backend, []).append(load)
+
+    result = []
+    for bucket_key in sorted(buckets.keys()):
+        entry = {'time': time.strftime('%H:%M:%S', time.localtime(bucket_key))}
+        for b in ('h2', 'h3', 'h4'):
+            vals = buckets[bucket_key].get(b, [])
+            entry[b] = round(sum(vals) / len(vals), 1) if vals else 0
+        result.append(entry)
+    return result

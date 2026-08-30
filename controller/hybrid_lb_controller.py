@@ -1,7 +1,13 @@
 #!/usr/bin/env python3
-from controller.db import log_event, log_load_sample
 import json
 import time
+import random
+import sys
+import os
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from db import log_event, log_load_sample, recent_events, event_count, sample_count, get_long_history
+
 from collections import deque
 from webob import Response
 from ryu.base import app_manager
@@ -16,19 +22,19 @@ VIRTUAL_IP = '10.0.0.100'
 VIRTUAL_MAC = '00:00:00:00:01:00'
 
 BACKENDS = {
-    'h2': {'ip': '10.0.0.2', 'mac': '00:00:00:00:00:02', 'dpid': 1, 'port': 2, 'cloud': False},
-    'h3': {'ip': '10.0.0.3', 'mac': '00:00:00:00:00:03', 'dpid': 1, 'port': 3, 'cloud': False},
-    'h4': {'ip': '10.0.0.4', 'mac': '00:00:00:00:00:04', 'dpid': 2, 'port': 2, 'cloud': True},
+    'h2': {'ip': '10.0.0.2', 'mac': '00:00:00:00:00:02', 'dpid': 1, 'port': 2, 'cloud': False, 'label': 'Private GPU Node A', 'vlan': 10},
+    'h3': {'ip': '10.0.0.3', 'mac': '00:00:00:00:00:03', 'dpid': 1, 'port': 3, 'cloud': False, 'label': 'Private GPU Node B', 'vlan': 10},
+    'h4': {'ip': '10.0.0.4', 'mac': '00:00:00:00:00:04', 'dpid': 2, 'port': 2, 'cloud': True, 'label': 'Cloud-Burst GPU Node', 'vlan': 20},
 }
 
 S1_TO_S2_PORT = 4
 S2_TO_S1_PORT = 1
 
 MONITOR_INTERVAL_SEC = 2
-LOAD_THRESHOLD_BYTES_PER_SEC = 5_000
 FLOW_IDLE_TIMEOUT = 5
 HISTORY_LENGTH = 30
 EVENT_LOG_LENGTH = 15
+FULL_OFFLOAD_MULTIPLIER = 2.0
 
 
 class HybridLBRestController(ControllerBase):
@@ -39,6 +45,38 @@ class HybridLBRestController(ControllerBase):
     @route('hybridlb', '/status', methods=['GET'])
     def status(self, req, **kwargs):
         body = json.dumps(self.lb_app.get_status(), indent=2)
+        return Response(content_type='application/json', charset='UTF-8', body=body,
+                         headerlist=[('Access-Control-Allow-Origin', '*')])
+
+    @route('hybridlb', '/set-threshold', methods=['POST', 'OPTIONS'])
+    def set_threshold(self, req, **kwargs):
+        if req.method == 'OPTIONS':
+            return Response(status=200, headerlist=[
+                ('Access-Control-Allow-Origin', '*'),
+                ('Access-Control-Allow-Methods', 'POST, OPTIONS'),
+                ('Access-Control-Allow-Headers', 'Content-Type'),
+            ])
+        try:
+            payload = json.loads(req.body.decode('utf-8'))
+            new_threshold = float(payload['threshold'])
+            self.lb_app.set_threshold(new_threshold)
+            body = json.dumps({'ok': True, 'threshold': new_threshold})
+        except Exception as e:
+            body = json.dumps({'ok': False, 'error': str(e)})
+        return Response(content_type='application/json', charset='UTF-8', body=body,
+                         headerlist=[('Access-Control-Allow-Origin', '*')])
+
+    @route('hybridlb', '/history-db', methods=['GET'])
+    def history_db(self, req, **kwargs):
+        minutes = int(req.GET.get('minutes', 60))
+        bucket = int(req.GET.get('bucket', 60))
+        data = {
+            'history': get_long_history(minutes=minutes, bucket_seconds=bucket),
+            'recent_events': recent_events(limit=20),
+            'total_events_logged': event_count(),
+            'total_samples_logged': sample_count(),
+        }
+        body = json.dumps(data, indent=2)
         return Response(content_type='application/json', charset='UTF-8', body=body,
                          headerlist=[('Access-Control-Allow-Origin', '*')])
 
@@ -56,6 +94,8 @@ class HybridCloudLoadBalancer(app_manager.RyuApp):
         self.last_decision = None
         self.last_threshold_exceeded = False
         self.spike_started_at = None
+        self.threshold = 5_000
+        self.last_offload_probability = 0.0
         self.history = deque(maxlen=HISTORY_LENGTH)
         self.event_log = deque(maxlen=EVENT_LOG_LENGTH)
         self.monitor_thread = hub.spawn(self._monitor_loop)
@@ -63,11 +103,15 @@ class HybridCloudLoadBalancer(app_manager.RyuApp):
         wsgi = kwargs['wsgi']
         wsgi.register(HybridLBRestController, {'lb_app': self})
 
+    def set_threshold(self, new_value):
+        old = self.threshold
+        self.threshold = new_value
+        self._log_event(f"Threshold changed: {old:.0f} -> {new_value:.0f} B/s")
+        self.logger.info("Threshold updated to %.0f B/s", new_value)
+
     def _log_event(self, message):
-        self.event_log.appendleft({
-            'time': time.strftime('%H:%M:%S'),
-            'message': message,
-        })
+        self.event_log.appendleft({'time': time.strftime('%H:%M:%S'), 'message': message})
+        log_event(message)
 
     def get_status(self):
         backends = {}
@@ -81,9 +125,10 @@ class HybridCloudLoadBalancer(app_manager.RyuApp):
             spike_duration = round(time.time() - self.spike_started_at, 1)
         return {
             'backends': backends,
-            'threshold_bytes_per_sec': LOAD_THRESHOLD_BYTES_PER_SEC,
+            'threshold_bytes_per_sec': self.threshold,
             'last_decision': self.last_decision,
             'threshold_exceeded': self.last_threshold_exceeded,
+            'offload_probability_pct': round(self.last_offload_probability * 100, 1),
             'spike_duration_sec': spike_duration,
             'history': list(self.history),
             'event_log': list(self.event_log),
@@ -126,6 +171,8 @@ class HybridCloudLoadBalancer(app_manager.RyuApp):
                 'h3': round(self.backend_load('h3'), 1),
                 'h4': round(self.backend_load('h4'), 1),
             })
+            for name in ('h2', 'h3', 'h4'):
+                log_load_sample(name, self.backend_load(name))
 
     @set_ev_cls(ofp_event.EventOFPPortStatsReply, MAIN_DISPATCHER)
     def _port_stats_reply_handler(self, ev):
@@ -147,25 +194,36 @@ class HybridCloudLoadBalancer(app_manager.RyuApp):
         private_names = [n for n, b in BACKENDS.items() if not b['cloud']]
         loads = {n: self.backend_load(n) for n in private_names}
         best_private = min(loads, key=loads.get)
+        best_load = loads[best_private]
 
-        if loads[best_private] > LOAD_THRESHOLD_BYTES_PER_SEC:
+        if best_load <= self.threshold:
+            probability = 0.0
+        else:
+            excess_ratio = (best_load - self.threshold) / (self.threshold * (FULL_OFFLOAD_MULTIPLIER - 1))
+            probability = min(1.0, max(0.0, excess_ratio))
+        self.last_offload_probability = probability
+
+        send_to_cloud = probability > 0 and random.random() < probability
+
+        if send_to_cloud:
             cloud_name = next(n for n, b in BACKENDS.items() if b['cloud'])
             self.logger.info(
-                "[THRESHOLD EXCEEDED] best private load=%.0f B/s > %.0f B/s -> CLOUD OFFLOAD to %s",
-                loads[best_private], LOAD_THRESHOLD_BYTES_PER_SEC, cloud_name)
+                "[GRADUAL OFFLOAD] private load=%.0f B/s, offload probability=%.0f%% -> CLOUD (%s)",
+                best_load, probability * 100, cloud_name)
             if not self.last_threshold_exceeded:
                 self.spike_started_at = time.time()
-                self._log_event(f"Spike detected ({loads[best_private]:.0f} B/s) — offloading to {cloud_name}")
+                self._log_event(f"Spike detected ({best_load:.0f} B/s) — gradual offload begins ({probability*100:.0f}%)")
             self.last_decision = cloud_name
             self.last_threshold_exceeded = True
             return cloud_name
 
-        if self.last_threshold_exceeded:
+        if self.last_threshold_exceeded and probability == 0.0:
             self._log_event(f"Load recovered — back to local routing ({best_private})")
-        self.spike_started_at = None
-        self.logger.info("[LOCAL] routing to %s (load=%.0f B/s)", best_private, loads[best_private])
+            self.spike_started_at = None
+        self.last_threshold_exceeded = probability > 0
+        self.logger.info("[LOCAL] routing to %s (load=%.0f B/s, offload prob=%.0f%%)",
+                          best_private, best_load, probability * 100)
         self.last_decision = best_private
-        self.last_threshold_exceeded = False
         return best_private
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)

@@ -3,34 +3,86 @@
 <head>
 <meta charset="utf-8">
 <title>Hybrid Cloud-SDN — Live Load Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
 <style>
-  body { font-family: Arial, sans-serif; background: #14141f; color: #eee; padding: 30px; }
-  h1 { color: #fff; margin-bottom: 4px; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { font-family: 'Rajdhani', Arial, sans-serif; background: #0a0a10; color: #eee; padding: 30px; margin:0; position: relative; overflow-x: hidden; }
+  #bgCanvas { position: fixed; top:0; left:0; width:100%; height:100%; z-index:-1; opacity:0.55; }
+  h1 { color: #fff; margin-bottom: 4px; font-weight: 700; letter-spacing: 0.5px; }
+  .mono { font-family: 'Share Tech Mono', monospace; }
   .subtitle { color: #888; margin-bottom: 25px; font-size: 14px; }
-  .status-line { font-size: 20px; margin-bottom: 6px; }
-  .status-line span { font-weight: bold; }
-  .spike-timer { color: #ffca28; font-size: 14px; margin-bottom: 25px; min-height: 18px; }
+  .status-line { font-size: 21px; margin-bottom: 6px; font-weight: 700; }
+  .status-line span { font-weight: bold; font-family: 'Share Tech Mono', monospace; color: #4caf50; transition: color 0.4s ease; }
+  .prob-line { color: #90caf9; font-size: 14px; margin-bottom: 4px; font-family: 'Share Tech Mono', monospace; }
+  .spike-timer { color: #ffca28; font-size: 14px; margin-bottom: 20px; min-height: 18px; font-family: 'Share Tech Mono', monospace; }
   .grid { display: grid; grid-template-columns: 1fr 340px; gap: 30px; align-items: start; }
-  .bar-row { margin-bottom: 22px; }
-  .bar-label { font-size: 15px; margin-bottom: 4px; display: flex; justify-content: space-between; }
-  .bar-track { background: #2a2a3a; border-radius: 6px; height: 30px; width: 100%; overflow: hidden; margin-bottom: 6px; }
-  .bar-fill { height: 100%; transition: width 0.6s ease, background 0.6s ease; }
-  .private { background: #4caf50; }
-  .cloud { background: #2196f3; }
-  .over { background: #e53935; }
-  .active-badge { background: #ffca28; color: #222; padding: 2px 10px; border-radius: 10px; font-size: 12px; margin-left: 8px; }
-  .threshold-note { color: #888; font-size: 13px; margin-top: 10px; }
-  canvas { background: #1c1c2a; border-radius: 6px; display: block; margin-top: 4px; }
-  .panel { background: #1c1c2a; border-radius: 8px; padding: 16px; }
-  .panel h2 { font-size: 15px; margin: 0 0 12px 0; color: #ccc; }
-  .event-item { font-size: 13px; padding: 6px 0; border-bottom: 1px solid #2a2a3a; }
-  .event-item .t { color: #777; margin-right: 8px; }
-  .legend { font-size: 12px; color: #aaa; margin-top: 6px; }
+  .bar-row { margin-bottom: 22px; cursor: default; }
+  .bar-label { font-size: 15px; margin-bottom: 4px; display: flex; justify-content: space-between; font-weight: 600; }
+  .bar-label span:last-child { font-family: 'Share Tech Mono', monospace; color: #aaa; }
+  .bar-track { background: #1c1c2c; border-radius: 6px; height: 30px; width: 100%; overflow: hidden; margin-bottom: 6px; box-shadow: inset 0 0 6px rgba(0,0,0,0.6); transition: box-shadow 0.3s ease; }
+  .bar-row:hover .bar-track { box-shadow: inset 0 0 6px rgba(0,0,0,0.6), 0 0 10px rgba(255,255,255,0.08); }
+  .bar-fill { height: 100%; transition: width 0.7s cubic-bezier(.4,1.4,.6,1), background 0.5s ease, box-shadow 0.5s ease; }
+  .private { background: linear-gradient(90deg,#1b5e20,#4caf50); }
+  .cloud { background: linear-gradient(90deg,#0d47a1,#2196f3); }
+  .over { background: linear-gradient(90deg,#8e0000,#e53935); box-shadow: 0 0 16px rgba(229,57,53,0.75); }
+  .active-badge { background: #ffca28; color: #1a1a1a; padding: 3px 11px; border-radius: 10px; font-size: 12px; margin-left: 8px; font-family: 'Share Tech Mono', monospace; animation: badgePulse 1.4s ease-in-out infinite; }
+  @keyframes badgePulse { 0%,100%{ opacity:1; box-shadow:0 0 4px #ffca28;} 50%{ opacity:0.6; box-shadow:0 0 10px #ffca28;} }
+  .threshold-note { color: #888; font-size: 13px; margin-top: 10px; font-family: 'Share Tech Mono', monospace; }
+  canvas.chart { background: #14141f; border-radius: 6px; display: block; margin-top: 4px; }
+  .panel { background: #15151fcc; backdrop-filter: blur(2px); border-radius: 10px; padding: 18px; margin-bottom: 22px; border: 1px solid #24243a; transition: border-color 0.4s ease, box-shadow 0.4s ease; }
+  .panel:hover { border-color: #33334f; box-shadow: 0 0 22px rgba(80,80,140,0.10); }
+  .panel h2 { font-size: 15px; margin: 0 0 12px 0; color: #ccc; font-weight: 700; letter-spacing: 0.4px; }
+  .event-item { font-size: 13px; padding: 7px 0; border-bottom: 1px solid #24243a; animation: fadeIn 0.5s ease; font-family: 'Share Tech Mono', monospace; transition: background 0.2s ease; }
+  .event-item:hover { background: rgba(255,255,255,0.03); }
+  @keyframes fadeIn { from { opacity:0; transform: translateY(-4px); } to { opacity:1; transform:translateY(0); } }
+  .event-item .t { color: #666; margin-right: 8px; }
+  .legend { font-size: 12px; color: #aaa; margin-top: 8px; }
   .legend span { margin-right: 14px; }
   .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 4px; }
+  .slider-row { display: flex; align-items: center; gap: 10px; }
+  input[type=range] { flex: 1; accent-color: #2196f3; cursor: pointer; }
+  .slider-value { min-width: 90px; font-size: 13px; color: #ffca28; font-family: 'Share Tech Mono', monospace; }
+  button { background: linear-gradient(180deg,#2196f3,#1769c9); color: #fff; border: none; padding: 9px 16px; border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 700; letter-spacing: 0.3px; transition: transform 0.15s ease, box-shadow 0.25s ease; }
+  button:hover { transform: translateY(-2px); box-shadow: 0 4px 14px rgba(33,150,243,0.4); }
+  select { background: #1c1c2c; color: #eee; border: 1px solid #33334f; padding: 7px 12px; border-radius: 6px; font-size: 13px; cursor: pointer; font-family: 'Share Tech Mono', monospace; }
+  .db-stats { font-size: 12px; color: #888; margin-top: 8px; font-family: 'Share Tech Mono', monospace; }
+  .panel-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+
+  #topoWrap { position: relative; }
+  #topoSvg { width: 100%; height: 280px; background: radial-gradient(circle at 30% 20%, #191930, #0f0f18 75%); border-radius: 8px; }
+  .topo-node-group { cursor: pointer; }
+  .topo-node-circle { fill: #1c1c30; stroke: #3a3a55; stroke-width: 2; transition: fill 0.4s ease, stroke 0.4s ease, filter 0.4s ease; }
+  .topo-node-group:hover .topo-node-circle { stroke: #7a7aff; filter: drop-shadow(0 0 10px rgba(120,120,255,0.6)); }
+  .topo-icon { stroke: #aab; stroke-width: 1.6; fill: none; pointer-events: none; transition: stroke 0.4s ease; }
+  .node-glow-private .topo-icon-sibling { stroke: #4caf50; }
+  .topo-node-label { fill: #ddd; font-size: 12px; font-family: 'Share Tech Mono', monospace; text-anchor: middle; font-weight: bold; pointer-events: none; }
+  .topo-node-sub { fill: #888; font-size: 9px; font-family: 'Share Tech Mono', monospace; text-anchor: middle; pointer-events: none; }
+  .topo-node-ip { fill: #666; font-size: 8px; font-family: 'Share Tech Mono', monospace; text-anchor: middle; pointer-events: none; }
+  .topo-link-base { stroke: #23233a; stroke-width: 2; fill: none; }
+  .topo-link-active { fill: none; stroke-width: 3.5; stroke-linecap: round; stroke-dasharray: 10 8; animation: flowDash 0.8s linear infinite; filter: drop-shadow(0 0 5px currentColor); }
+  @keyframes flowDash { to { stroke-dashoffset: -36; } }
+  .packet-dot { r: 4; filter: drop-shadow(0 0 5px currentColor); }
+  .node-glow-private { filter: drop-shadow(0 0 9px #4caf50); stroke: #4caf50 !important; }
+  .node-glow-cloud { filter: drop-shadow(0 0 11px #2196f3); stroke: #2196f3 !important; }
+  .node-glow-hub { filter: drop-shadow(0 0 7px #ffca28); stroke: #ffca28 !important; }
+  .link-hot { stroke: #e53935 !important; filter: drop-shadow(0 0 7px #e53935); }
+  .topo-status-text { fill: #999; font-size: 11px; font-family: 'Share Tech Mono', monospace; }
+  .topo-tooltip { position: absolute; background: #202035; border: 1px solid #3a3a5a; border-radius: 6px; padding: 8px 12px; font-size: 12px; font-family: 'Share Tech Mono', monospace; pointer-events: none; opacity: 0; transition: opacity 0.15s ease; white-space: nowrap; z-index: 10; box-shadow: 0 4px 14px rgba(0,0,0,0.5); }
+
+  /* Routing info panel */
+  .route-table { width:100%; border-collapse: collapse; font-family: 'Share Tech Mono', monospace; font-size: 13px; }
+  .route-table td { padding: 6px 4px; border-bottom: 1px solid #24243a; }
+  .route-table td:first-child { color: #888; width: 42%; }
+  .route-table td:last-child { color: #dcdcff; }
+  .mode-badge { background: #263a26; color: #7ee787; padding: 2px 9px; border-radius: 8px; font-size: 11px; }
+  .hop-chain { font-family: 'Share Tech Mono', monospace; font-size: 13px; color: #9fd; margin-top: 8px; line-height: 1.9; }
+  .hop-chain b { color: #ffca28; }
 </style>
 </head>
 <body>
+<canvas id="bgCanvas"></canvas>
+
   <h1>Hybrid Cloud-SDN — Live Load Dashboard</h1>
   <div class="subtitle">Real-time view of the SDN controller's routing decisions</div>
 
@@ -38,22 +90,134 @@
     Currently routing new requests to: <span id="decision">—</span>
     <span id="offload-badge" style="display:none" class="active-badge">CLOUD OFFLOAD ACTIVE</span>
   </div>
+  <div class="prob-line" id="prob-line"></div>
   <div class="spike-timer" id="spike-timer"></div>
 
   <div class="grid">
     <div>
+
+      <div class="panel" id="topoWrap">
+        <h2>Live Network Topology</h2>
+        <svg id="topoSvg" viewBox="0 0 640 260" xmlns="http://www.w3.org/2000/svg">
+          <path class="topo-link-base" d="M70,130 L200,60"></path>
+          <path class="topo-link-base" d="M70,130 L200,130"></path>
+          <path class="topo-link-base" d="M70,130 L200,200"></path>
+          <path class="topo-link-base" d="M200,60 L340,60"></path>
+          <path class="topo-link-base" d="M200,130 L340,60"></path>
+          <path class="topo-link-base" d="M200,200 L340,60"></path>
+          <path id="linkCore" class="topo-link-base" d="M340,60 L480,60"></path>
+          <path class="topo-link-base" d="M480,60 L580,60"></path>
+
+          <path id="activeLink" class="topo-link-active" d="" stroke="#4caf50"></path>
+          <circle id="packetDot1" class="packet-dot" fill="#4caf50" r="4" style="display:none"></circle>
+          <circle id="packetDot2" class="packet-dot" fill="#4caf50" r="4" style="display:none"></circle>
+
+          <!-- h1: laptop/client icon -->
+          <g class="topo-node-group" id="node-h1" data-tip="h1 (client) · 10.0.0.1/24">
+            <circle class="topo-node-circle" cx="70" cy="130" r="26"></circle>
+            <path class="topo-icon" d="M58,124 h24 v10 h-24 z M56,136 h28 M62,124 v-3 h16 v3" transform="translate(0,-3)"></path>
+            <text class="topo-node-label" x="70" y="150">h1</text>
+            <text class="topo-node-sub" x="70" y="168">client</text>
+            <text class="topo-node-ip" x="70" y="180">10.0.0.1</text></g>
+
+          <!-- s1: switch icon (three ports) -->
+          <g class="topo-node-group" id="node-s1" data-tip="s1 · Private OVS Switch · OpenFlow 1.3">
+            <circle class="topo-node-circle" cx="200" cy="130" r="24"></circle>
+            <path class="topo-icon" d="M188,124 h24 v8 h-24 z M192,132 v4 M198,132 v4 M204,132 v4 M210,132 v4" transform="translate(0,-6)"></path>
+            <text class="topo-node-label" x="200" y="146">s1</text>
+            <text class="topo-node-sub" x="200" y="164">switch</text></g>
+
+          <!-- h2: server icon -->
+          <g class="topo-node-group" id="node-h2" data-tip="h2 (private-gpu-A) · 10.0.0.2 · :80">
+            <circle class="topo-node-circle" cx="340" cy="60" r="24"></circle>
+            <path class="topo-icon" d="M328,50 h24 v6 h-24 z M328,58 h24 v6 h-24 z M332,53 h1 M332,61 h1" transform="translate(0,-6)"></path>
+            <text class="topo-node-label" x="340" y="76">h2</text>
+            <text class="topo-node-sub" x="340" y="94">private-gpu-A</text>
+            <text class="topo-node-ip" x="340" y="106">10.0.0.2</text></g>
+
+          <!-- h3: server icon -->
+          <g class="topo-node-group" id="node-h3" data-tip="h3 (private-gpu-B) · 10.0.0.3 · :80">
+            <circle class="topo-node-circle" cx="340" cy="200" r="24"></circle>
+            <path class="topo-icon" d="M328,190 h24 v6 h-24 z M328,198 h24 v6 h-24 z M332,193 h1 M332,201 h1" transform="translate(0,-6)"></path>
+            <text class="topo-node-label" x="340" y="216">h3</text>
+            <text class="topo-node-sub" x="340" y="234">private-gpu-B</text>
+            <text class="topo-node-ip" x="340" y="246">10.0.0.3</text></g>
+
+          <!-- s2: switch icon -->
+          <g class="topo-node-group" id="node-s2" data-tip="s2 · Cloud OVS Switch · OpenFlow 1.3">
+            <circle class="topo-node-circle" cx="480" cy="60" r="22"></circle>
+            <path class="topo-icon" d="M469,54 h22 v8 h-22 z M472,62 v4 M478,62 v4 M484,62 v4" transform="translate(0,-6)"></path>
+            <text class="topo-node-label" x="480" y="76">s2</text>
+            <text class="topo-node-sub" x="480" y="34">switch</text></g>
+
+          <!-- h4: cloud icon -->
+          <g class="topo-node-group" id="node-h4" data-tip="h4 (cloud-gpu-burst) · 10.0.0.4 · :80">
+            <circle class="topo-node-circle" cx="580" cy="60" r="24"></circle>
+            <path class="topo-icon" d="M567,63 a6,6 0 0 1 0,-12 a8,8 0 0 1 15,-2 a6,6 0 0 1 2,14 z" transform="translate(0,-6)"></path>
+            <text class="topo-node-label" x="580" y="76">h4</text>
+            <text class="topo-node-sub" x="580" y="94">cloud-gpu-burst</text>
+            <text class="topo-node-ip" x="580" y="106">10.0.0.4</text></g>
+
+          <text class="topo-status-text" x="10" y="252" id="topoStatusText">Waiting for traffic...</text>
+        </svg>
+        <div class="topo-tooltip" id="topoTooltip"></div>
+        <div class="legend">
+          <span><span class="dot" style="background:#4caf50"></span>Local routing (private)</span>
+          <span><span class="dot" style="background:#2196f3"></span>Cloud offload</span>
+          <span><span class="dot" style="background:#e53935"></span>Congested / spike</span>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Routing &amp; Addressing Info</h2>
+        <table class="route-table">
+          <tr><td>Client source</td><td id="rt-client">h1 · 10.0.0.1</td></tr>
+          <tr><td>Requested (virtual) service IP</td><td id="rt-vip">10.0.0.100 : 80</td></tr>
+          <tr><td>Subnet in use</td><td>10.0.0.0 / 24 (255.255.255.0)</td></tr>
+          <tr><td>VLAN segmentation</td><td>VLAN 10 (private GPU) · VLAN 20 (cloud-burst GPU)</td></tr>
+          <tr><td>Routing mode</td><td><span class="mode-badge" id="rt-mode">Dynamic — SDN Weighted Load Balancing</span></td></tr>
+          <tr><td>Resolved backend</td><td id="rt-backend">—</td></tr>
+          <tr><td>Backend real IP : port</td><td id="rt-backend-ip">—</td></tr>
+          <tr><td>Decision basis</td><td id="rt-basis">Live port-stat polling (2s interval)</td></tr>
+        </table>
+        <div class="hop-chain" id="hopChain">h1 (10.0.0.1) → ...</div>
+      </div>
+
       <div id="bars"></div>
       <div class="threshold-note" id="threshold-note"></div>
 
-      <div class="panel" style="margin-top:20px">
-        <h2>Load History (last ~60s)</h2>
-        <canvas id="historyChart" width="640" height="180"></canvas>
+      <div class="panel">
+        <h2>Live Threshold Control</h2>
+        <div class="slider-row">
+          <input type="range" id="thresholdSlider" min="1000" max="20000" step="500" value="5000">
+          <span class="slider-value" id="sliderValue">5,000 B/s</span>
+          <button onclick="applyThreshold()">Apply</button>
+        </div>
+      </div>
+
+      <div class="panel">
+        <h2>Live Load History (last ~60s, in-memory)</h2>
+        <canvas class="chart" id="historyChart" width="640" height="180"></canvas>
         <div class="legend">
           <span><span class="dot" style="background:#4caf50"></span>Private A (h2)</span>
           <span><span class="dot" style="background:#66bb6a"></span>Private B (h3)</span>
           <span><span class="dot" style="background:#2196f3"></span>Cloud (h4)</span>
           <span><span class="dot" style="background:#e53935"></span>Threshold</span>
         </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-header-row">
+          <h2 style="margin:0">Long-Term History (from database)</h2>
+          <select id="rangeSelect" onchange="refreshLongHistory()">
+            <option value="15">Last 15 min</option>
+            <option value="60" selected>Last 60 min</option>
+            <option value="360">Last 6 hours</option>
+            <option value="1440">Last 24 hours</option>
+          </select>
+        </div>
+        <canvas class="chart" id="longHistoryChart" width="640" height="180"></canvas>
+        <div class="db-stats" id="dbStats"></div>
       </div>
     </div>
 
@@ -64,48 +228,251 @@
   </div>
 
 <script>
+// ---------- Animated background network mesh ----------
+const bgCanvas = document.getElementById("bgCanvas");
+const bgCtx = bgCanvas.getContext("2d");
+function resizeBg() { bgCanvas.width = window.innerWidth; bgCanvas.height = window.innerHeight; }
+resizeBg();
+window.addEventListener("resize", resizeBg);
+
+const NODE_COUNT = 45;
+const bgNodes = Array.from({length: NODE_COUNT}, () => ({
+  x: Math.random() * bgCanvas.width,
+  y: Math.random() * bgCanvas.height,
+  vx: (Math.random() - 0.5) * 0.25,
+  vy: (Math.random() - 0.5) * 0.25,
+}));
+
+function drawBg() {
+  bgCtx.clearRect(0, 0, bgCanvas.width, bgCanvas.height);
+  bgNodes.forEach(n => {
+    n.x += n.vx; n.y += n.vy;
+    if (n.x < 0 || n.x > bgCanvas.width) n.vx *= -1;
+    if (n.y < 0 || n.y > bgCanvas.height) n.vy *= -1;
+  });
+  for (let i=0;i<bgNodes.length;i++){
+    for (let j=i+1;j<bgNodes.length;j++){
+      const dx = bgNodes[i].x-bgNodes[j].x, dy = bgNodes[i].y-bgNodes[j].y;
+      const dist = Math.sqrt(dx*dx+dy*dy);
+      if (dist < 160) {
+        bgCtx.strokeStyle = `rgba(80,110,180,${0.12 * (1-dist/160)})`;
+        bgCtx.lineWidth = 1;
+        bgCtx.beginPath();
+        bgCtx.moveTo(bgNodes[i].x, bgNodes[i].y);
+        bgCtx.lineTo(bgNodes[j].x, bgNodes[j].y);
+        bgCtx.stroke();
+      }
+    }
+  }
+  bgNodes.forEach(n => {
+    bgCtx.fillStyle = "rgba(120,150,255,0.5)";
+    bgCtx.beginPath();
+    bgCtx.arc(n.x, n.y, 1.6, 0, Math.PI*2);
+    bgCtx.fill();
+  });
+  requestAnimationFrame(drawBg);
+}
+requestAnimationFrame(drawBg);
+
+// ---------- Core dashboard logic ----------
 const STATUS_URL = "http://127.0.0.1:8080/status";
-const NAMES = {h2: "Private Server A (h2)", h3: "Private Server B (h3)", h4: "Cloud Server (h4)"};
+const THRESHOLD_URL = "http://127.0.0.1:8080/set-threshold";
+const HISTORY_DB_URL = "http://127.0.0.1:8080/history-db";
+const NAMES = {h2: "Private GPU Node A (h2) · VLAN 10", h3: "Private GPU Node B (h3) · VLAN 10", h4: "Cloud-Burst GPU Node (h4) · VLAN 20"};
+const BACKEND_IPS = {h2: "10.0.0.2", h3: "10.0.0.3", h4: "10.0.0.4"};
+
 const canvas = document.getElementById("historyChart");
 const ctx = canvas.getContext("2d");
+const longCanvas = document.getElementById("longHistoryChart");
+const longCtx = longCanvas.getContext("2d");
 
-function drawHistory(history, threshold) {
-  const w = canvas.width, h = canvas.height;
-  ctx.clearRect(0, 0, w, h);
-  if (history.length < 2) {
-    ctx.fillStyle = "#555";
-    ctx.font = "13px Arial";
-    ctx.fillText("Collecting data...", 10, h/2);
+const slider = document.getElementById("thresholdSlider");
+const sliderValue = document.getElementById("sliderValue");
+slider.addEventListener("input", () => {
+  sliderValue.textContent = Number(slider.value).toLocaleString() + " B/s";
+});
+
+async function applyThreshold() {
+  await fetch(THRESHOLD_URL, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({threshold: Number(slider.value)})
+  });
+}
+
+const tooltip = document.getElementById("topoTooltip");
+document.querySelectorAll(".topo-node-group").forEach(g => {
+  g.addEventListener("mousemove", (e) => {
+    tooltip.textContent = g.getAttribute("data-tip");
+    const wrapRect = document.getElementById("topoWrap").getBoundingClientRect();
+    tooltip.style.left = (e.clientX - wrapRect.left + 14) + "px";
+    tooltip.style.top = (e.clientY - wrapRect.top + 10) + "px";
+    tooltip.style.opacity = "1";
+  });
+  g.addEventListener("mouseleave", () => { tooltip.style.opacity = "0"; });
+});
+
+const TOPO_PATHS = {
+  h2: "M70,130 L200,130 L340,60",
+  h3: "M70,130 L200,130 L340,200",
+  h4: "M70,130 L200,130 L340,60 L480,60 L580,60"
+};
+const TOPO_POINTS = {
+  h2: [[70,130],[200,130],[340,60]],
+  h3: [[70,130],[200,130],[340,200]],
+  h4: [[70,130],[200,130],[340,60],[480,60],[580,60]]
+};
+const HOP_CHAINS = {
+  h2: "h1 (10.0.0.1) &rarr; <b>s1</b> [OpenFlow] &rarr; h2 (10.0.0.2:80)",
+  h3: "h1 (10.0.0.1) &rarr; <b>s1</b> [OpenFlow] &rarr; h3 (10.0.0.3:80)",
+  h4: "h1 (10.0.0.1) &rarr; <b>s1</b> &rarr; <b>s1&harr;s2 WAN link</b> (20ms) &rarr; <b>s2</b> &rarr; h4 (10.0.0.4:80)",
+};
+let lastTopoTarget = null;
+let packetT = 0;
+
+function clearNodeGlow() {
+  ["node-h1","node-s1","node-h2","node-h3","node-s2","node-h4"].forEach(id => {
+    const circle = document.querySelector(`#${id} .topo-node-circle`);
+    if (circle) circle.classList.remove("node-glow-private","node-glow-cloud","node-glow-hub");
+  });
+  document.getElementById("linkCore").classList.remove("link-hot");
+}
+
+function pointAlongPath(points, t) {
+  const segLens = [];
+  let total = 0;
+  for (let i=0;i<points.length-1;i++){
+    const dx = points[i+1][0]-points[i][0], dy = points[i+1][1]-points[i][1];
+    const len = Math.sqrt(dx*dx+dy*dy);
+    segLens.push(len); total += len;
+  }
+  let dist = t * total, acc = 0;
+  for (let i=0;i<segLens.length;i++){
+    if (dist <= acc + segLens[i]) {
+      const localT = (dist - acc) / segLens[i];
+      const x = points[i][0] + (points[i+1][0]-points[i][0]) * localT;
+      const y = points[i][1] + (points[i+1][1]-points[i][1]) * localT;
+      return [x,y];
+    }
+    acc += segLens[i];
+  }
+  return points[points.length-1];
+}
+
+let currentDecision = null;
+
+function animatePackets() {
+  if (currentDecision && TOPO_POINTS[currentDecision]) {
+    const pts = TOPO_POINTS[currentDecision];
+    const color = currentDecision === "h4" ? "#2196f3" : "#4caf50";
+    packetT = (packetT + 0.012) % 1;
+    const t2 = (packetT + 0.5) % 1;
+    const [x1,y1] = pointAlongPath(pts, packetT);
+    const [x2,y2] = pointAlongPath(pts, t2);
+    const d1 = document.getElementById("packetDot1");
+    const d2 = document.getElementById("packetDot2");
+    d1.setAttribute("cx", x1); d1.setAttribute("cy", y1); d1.setAttribute("fill", color); d1.style.display = "block";
+    d2.setAttribute("cx", x2); d2.setAttribute("cy", y2); d2.setAttribute("fill", color); d2.style.display = "block";
+  } else {
+    document.getElementById("packetDot1").style.display = "none";
+    document.getElementById("packetDot2").style.display = "none";
+  }
+  requestAnimationFrame(animatePackets);
+}
+requestAnimationFrame(animatePackets);
+
+function updateTopology(decision, offloading) {
+  currentDecision = decision;
+  if (!decision) {
+    document.getElementById("topoStatusText").textContent = "Waiting for traffic...";
     return;
   }
-  const allVals = history.flatMap(p => [p.h2, p.h3, p.h4]);
-  const maxVal = Math.max(threshold * 1.3, ...allVals, 1);
-  const stepX = w / (history.length - 1);
+  const path = TOPO_PATHS[decision];
+  if (!path) return;
 
+  const activeLink = document.getElementById("activeLink");
+  const isCloud = decision === "h4";
+  activeLink.setAttribute("stroke", isCloud ? "#2196f3" : "#4caf50");
+
+  if (decision !== lastTopoTarget) {
+    activeLink.setAttribute("d", path);
+    lastTopoTarget = decision;
+  }
+
+  clearNodeGlow();
+  document.querySelector("#node-h1 .topo-node-circle").classList.add("node-glow-hub");
+  document.querySelector("#node-s1 .topo-node-circle").classList.add("node-glow-hub");
+  if (isCloud) {
+    document.querySelector("#node-s2 .topo-node-circle").classList.add("node-glow-cloud");
+    document.querySelector("#node-h4 .topo-node-circle").classList.add("node-glow-cloud");
+    if (offloading) document.getElementById("linkCore").classList.add("link-hot");
+  } else {
+    document.querySelector(`#node-${decision} .topo-node-circle`).classList.add("node-glow-private");
+  }
+
+  document.getElementById("topoStatusText").textContent = isCloud
+    ? "Traffic dynamically offloaded to cloud (h4) due to congestion"
+    : `Traffic routed locally to ${decision} (least loaded private server)`;
+
+  // Routing info panel
+  document.getElementById("rt-backend").textContent = NAMES[decision] || decision;
+  document.getElementById("rt-backend-ip").textContent = (BACKEND_IPS[decision] || "—") + " : 80";
+  document.getElementById("rt-mode").textContent = isCloud
+    ? "Dynamic — Gradual Cloud Offload (probability-based)"
+    : "Dynamic — SDN Weighted Load Balancing";
+  document.getElementById("hopChain").innerHTML = HOP_CHAINS[decision] || "";
+}
+
+function drawLineChart(context, canvasEl, points, threshold) {
+  const w = canvasEl.width, h = canvasEl.height;
+  context.clearRect(0, 0, w, h);
+  if (points.length < 2) {
+    context.fillStyle = "#555";
+    context.font = "13px 'Share Tech Mono', monospace";
+    context.fillText("Collecting data...", 10, h/2);
+    return;
+  }
+  const allVals = points.flatMap(p => [p.h2, p.h3, p.h4]);
+  const maxVal = Math.max((threshold || 0) * 1.3, ...allVals, 1);
+  const stepX = w / (points.length - 1);
   function yFor(v) { return h - (v / maxVal) * (h - 20) - 10; }
 
-  // threshold line
-  ctx.strokeStyle = "#e53935";
-  ctx.setLineDash([5, 4]);
-  ctx.beginPath();
-  ctx.moveTo(0, yFor(threshold));
-  ctx.lineTo(w, yFor(threshold));
-  ctx.stroke();
-  ctx.setLineDash([]);
+  if (threshold) {
+    context.strokeStyle = "#e53935";
+    context.setLineDash([5, 4]);
+    context.beginPath();
+    context.moveTo(0, yFor(threshold));
+    context.lineTo(w, yFor(threshold));
+    context.stroke();
+    context.setLineDash([]);
+  }
 
   function drawLine(key, color) {
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    history.forEach((p, i) => {
+    context.strokeStyle = color;
+    context.lineWidth = 2;
+    context.beginPath();
+    points.forEach((p, i) => {
       const x = i * stepX, y = yFor(p[key]);
-      if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      if (i === 0) context.moveTo(x, y); else context.lineTo(x, y);
     });
-    ctx.stroke();
+    context.stroke();
   }
   drawLine("h2", "#4caf50");
   drawLine("h3", "#66bb6a");
   drawLine("h4", "#2196f3");
+}
+
+async function refreshLongHistory() {
+  const minutes = document.getElementById("rangeSelect").value;
+  try {
+    const res = await fetch(`${HISTORY_DB_URL}?minutes=${minutes}`);
+    const data = await res.json();
+    drawLineChart(longCtx, longCanvas, data.history, null);
+    document.getElementById("dbStats").textContent =
+      `${data.total_samples_logged.toLocaleString()} load samples · ${data.total_events_logged.toLocaleString()} events logged (persists across restarts)`;
+  } catch (e) {
+    document.getElementById("dbStats").textContent = "Could not load database history.";
+  }
 }
 
 async function refresh() {
@@ -119,23 +486,22 @@ async function refresh() {
     document.getElementById("decision").textContent = data.last_decision || "waiting...";
     document.getElementById("offload-badge").style.display =
       data.threshold_exceeded ? "inline-block" : "none";
+    document.getElementById("prob-line").textContent =
+      "Cloud offload probability: " + data.offload_probability_pct + "%";
 
     const timerDiv = document.getElementById("spike-timer");
-    if (data.spike_duration_sec !== null && data.spike_duration_sec !== undefined) {
-      timerDiv.textContent = "Spike ongoing for " + data.spike_duration_sec + "s";
-    } else {
-      timerDiv.textContent = "";
-    }
+    timerDiv.textContent = (data.spike_duration_sec !== null && data.spike_duration_sec !== undefined)
+      ? "Spike ongoing for " + data.spike_duration_sec + "s" : "";
+
+    updateTopology(data.last_decision, data.threshold_exceeded);
 
     const barsDiv = document.getElementById("bars");
     barsDiv.innerHTML = "";
     const maxLoad = Math.max(threshold * 2, ...Object.values(data.backends).map(b => b.load_bytes_per_sec), 1);
-
     for (const [name, info] of Object.entries(data.backends)) {
       const pct = Math.min(100, (info.load_bytes_per_sec / maxLoad) * 100);
       let cls = info.is_cloud ? "cloud" : "private";
       if (!info.is_cloud && info.load_bytes_per_sec > threshold) cls = "over";
-
       const row = document.createElement("div");
       row.className = "bar-row";
       row.innerHTML = `
@@ -147,23 +513,21 @@ async function refresh() {
       barsDiv.appendChild(row);
     }
 
-    drawHistory(data.history, threshold);
+    drawLineChart(ctx, canvas, data.history, threshold);
 
     const logDiv = document.getElementById("eventLog");
-    if (data.event_log.length === 0) {
-      logDiv.innerHTML = '<div class="event-item" style="color:#666">No events yet</div>';
-    } else {
-      logDiv.innerHTML = data.event_log.map(e =>
-        `<div class="event-item"><span class="t">${e.time}</span>${e.message}</div>`
-      ).join("");
-    }
+    logDiv.innerHTML = data.event_log.length === 0
+      ? '<div class="event-item" style="color:#666">No events yet</div>'
+      : data.event_log.map(e => `<div class="event-item"><span class="t">${e.time}</span>${e.message}</div>`).join("");
   } catch (e) {
     document.getElementById("decision").textContent = "controller unreachable";
   }
 }
 
 setInterval(refresh, 1000);
+setInterval(refreshLongHistory, 15000);
 refresh();
+refreshLongHistory();
 </script>
 </body>
 </html>
