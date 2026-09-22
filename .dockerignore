@@ -1,0 +1,10 @@
+.git
+.venv
+.ci-venv
+__pycache__
+*.py[cod]
+logs
+data
+*.db
+*.pid
+*.save
