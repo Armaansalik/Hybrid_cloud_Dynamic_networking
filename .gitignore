@@ -1,8 +1,8 @@
+.venv/
 venv/
 __pycache__/
 *.pyc
 logs/*.log
 logs/*.pid
 data/events.db
-*.log
 .DS_Store

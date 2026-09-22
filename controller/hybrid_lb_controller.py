@@ -21,10 +21,14 @@ from ryu.app.wsgi import ControllerBase, WSGIApplication, route
 VIRTUAL_IP = '10.0.0.100'
 VIRTUAL_MAC = '00:00:00:00:01:00'
 
+# BACKENDS: two private inference nodes and one cloud-burst inference node.
 BACKENDS = {
-    'h2': {'ip': '10.0.0.2', 'mac': '00:00:00:00:00:02', 'dpid': 1, 'port': 2, 'cloud': False, 'label': 'Private GPU Node A', 'vlan': 10},
-    'h3': {'ip': '10.0.0.3', 'mac': '00:00:00:00:00:03', 'dpid': 1, 'port': 3, 'cloud': False, 'label': 'Private GPU Node B', 'vlan': 10},
-    'h4': {'ip': '10.0.0.4', 'mac': '00:00:00:00:00:04', 'dpid': 2, 'port': 2, 'cloud': True, 'label': 'Cloud-Burst GPU Node', 'vlan': 20},
+    'h2': {'ip': '10.0.0.2', 'mac': '00:00:00:00:00:02', 'dpid': 1, 'port': 2,
+           'cloud': False, 'label': 'Private GPU Node A'},
+    'h3': {'ip': '10.0.0.3', 'mac': '00:00:00:00:00:03', 'dpid': 1, 'port': 3,
+           'cloud': False, 'label': 'Private GPU Node B'},
+    'h4': {'ip': '10.0.0.4', 'mac': '00:00:00:00:00:04', 'dpid': 2, 'port': 2,
+           'cloud': True, 'label': 'Cloud-Burst GPU Node'},
 }
 
 S1_TO_S2_PORT = 4
@@ -80,6 +84,13 @@ class HybridLBRestController(ControllerBase):
         return Response(content_type='application/json', charset='UTF-8', body=body,
                          headerlist=[('Access-Control-Allow-Origin', '*')])
 
+    @route('hybridlb', '/backends', methods=['GET'])
+    def backends_info(self, req, **kwargs):
+        """Full static metadata about each backend -- IP and label."""
+        body = json.dumps(BACKENDS, indent=2)
+        return Response(content_type='application/json', charset='UTF-8', body=body,
+                         headerlist=[('Access-Control-Allow-Origin', '*')])
+
 
 class HybridCloudLoadBalancer(app_manager.RyuApp):
     OFP_VERSIONS = [ofproto_v1_3.OFP_VERSION]
@@ -119,6 +130,8 @@ class HybridCloudLoadBalancer(app_manager.RyuApp):
             backends[name] = {
                 'load_bytes_per_sec': round(self.backend_load(name), 1),
                 'is_cloud': b['cloud'],
+                'label': b['label'],
+                'ip': b['ip'],
             }
         spike_duration = None
         if self.spike_started_at is not None:
@@ -191,6 +204,10 @@ class HybridCloudLoadBalancer(app_manager.RyuApp):
         return self.port_load.get((b['dpid'], b['port']), 0.0)
 
     def choose_backend(self):
+        """Gradual/proportional offloading: instead of an instant on/off
+        switch, the probability of sending a request to the cloud rises
+        smoothly from 0% at the threshold to 100% at FULL_OFFLOAD_MULTIPLIER
+        times the threshold."""
         private_names = [n for n, b in BACKENDS.items() if not b['cloud']]
         loads = {n: self.backend_load(n) for n in private_names}
         best_private = min(loads, key=loads.get)

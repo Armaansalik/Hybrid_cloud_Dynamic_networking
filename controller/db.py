@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""SQLite persistence layer for the Hybrid Cloud-SDN controller."""
+"""SQLite persistence layer for the Hybrid Cloud-SDN controller.
+Stores routing-decision events and load samples so history survives
+controller restarts -- this is the project's database layer."""
 import sqlite3
 import os
 import time

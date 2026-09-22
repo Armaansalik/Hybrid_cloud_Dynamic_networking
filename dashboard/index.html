@@ -4,6 +4,8 @@
 <meta charset="utf-8">
 <title>Hybrid Cloud-SDN — Live Load Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Rajdhani:wght@500;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="chart_setup.js"></script>
 <style>
   * { box-sizing: border-box; }
   html, body { height: 100%; }
@@ -55,7 +57,6 @@
   .topo-node-circle { fill: #1c1c30; stroke: #3a3a55; stroke-width: 2; transition: fill 0.4s ease, stroke 0.4s ease, filter 0.4s ease; }
   .topo-node-group:hover .topo-node-circle { stroke: #7a7aff; filter: drop-shadow(0 0 10px rgba(120,120,255,0.6)); }
   .topo-icon { stroke: #aab; stroke-width: 1.6; fill: none; pointer-events: none; transition: stroke 0.4s ease; }
-  .node-glow-private .topo-icon-sibling { stroke: #4caf50; }
   .topo-node-label { fill: #ddd; font-size: 12px; font-family: 'Share Tech Mono', monospace; text-anchor: middle; font-weight: bold; pointer-events: none; }
   .topo-node-sub { fill: #888; font-size: 9px; font-family: 'Share Tech Mono', monospace; text-anchor: middle; pointer-events: none; }
   .topo-node-ip { fill: #666; font-size: 8px; font-family: 'Share Tech Mono', monospace; text-anchor: middle; pointer-events: none; }
@@ -70,7 +71,6 @@
   .topo-status-text { fill: #999; font-size: 11px; font-family: 'Share Tech Mono', monospace; }
   .topo-tooltip { position: absolute; background: #202035; border: 1px solid #3a3a5a; border-radius: 6px; padding: 8px 12px; font-size: 12px; font-family: 'Share Tech Mono', monospace; pointer-events: none; opacity: 0; transition: opacity 0.15s ease; white-space: nowrap; z-index: 10; box-shadow: 0 4px 14px rgba(0,0,0,0.5); }
 
-  /* Routing info panel */
   .route-table { width:100%; border-collapse: collapse; font-family: 'Share Tech Mono', monospace; font-size: 13px; }
   .route-table td { padding: 6px 4px; border-bottom: 1px solid #24243a; }
   .route-table td:first-child { color: #888; width: 42%; }
@@ -112,7 +112,6 @@
           <circle id="packetDot1" class="packet-dot" fill="#4caf50" r="4" style="display:none"></circle>
           <circle id="packetDot2" class="packet-dot" fill="#4caf50" r="4" style="display:none"></circle>
 
-          <!-- h1: laptop/client icon -->
           <g class="topo-node-group" id="node-h1" data-tip="h1 (client) · 10.0.0.1/24">
             <circle class="topo-node-circle" cx="70" cy="130" r="26"></circle>
             <path class="topo-icon" d="M58,124 h24 v10 h-24 z M56,136 h28 M62,124 v-3 h16 v3" transform="translate(0,-3)"></path>
@@ -120,42 +119,37 @@
             <text class="topo-node-sub" x="70" y="168">client</text>
             <text class="topo-node-ip" x="70" y="180">10.0.0.1</text></g>
 
-          <!-- s1: switch icon (three ports) -->
           <g class="topo-node-group" id="node-s1" data-tip="s1 · Private OVS Switch · OpenFlow 1.3">
             <circle class="topo-node-circle" cx="200" cy="130" r="24"></circle>
             <path class="topo-icon" d="M188,124 h24 v8 h-24 z M192,132 v4 M198,132 v4 M204,132 v4 M210,132 v4" transform="translate(0,-6)"></path>
             <text class="topo-node-label" x="200" y="146">s1</text>
             <text class="topo-node-sub" x="200" y="164">switch</text></g>
 
-          <!-- h2: server icon -->
           <g class="topo-node-group" id="node-h2" data-tip="h2 (private-gpu-A) · 10.0.0.2 · :80">
             <circle class="topo-node-circle" cx="340" cy="60" r="24"></circle>
             <path class="topo-icon" d="M328,50 h24 v6 h-24 z M328,58 h24 v6 h-24 z M332,53 h1 M332,61 h1" transform="translate(0,-6)"></path>
             <text class="topo-node-label" x="340" y="76">h2</text>
-            <text class="topo-node-sub" x="340" y="94">private-gpu-A</text>
+            <text class="topo-node-sub" x="340" y="94">private-A</text>
             <text class="topo-node-ip" x="340" y="106">10.0.0.2</text></g>
 
-          <!-- h3: server icon -->
           <g class="topo-node-group" id="node-h3" data-tip="h3 (private-gpu-B) · 10.0.0.3 · :80">
             <circle class="topo-node-circle" cx="340" cy="200" r="24"></circle>
             <path class="topo-icon" d="M328,190 h24 v6 h-24 z M328,198 h24 v6 h-24 z M332,193 h1 M332,201 h1" transform="translate(0,-6)"></path>
             <text class="topo-node-label" x="340" y="216">h3</text>
-            <text class="topo-node-sub" x="340" y="234">private-gpu-B</text>
+            <text class="topo-node-sub" x="340" y="234">private-B</text>
             <text class="topo-node-ip" x="340" y="246">10.0.0.3</text></g>
 
-          <!-- s2: switch icon -->
           <g class="topo-node-group" id="node-s2" data-tip="s2 · Cloud OVS Switch · OpenFlow 1.3">
             <circle class="topo-node-circle" cx="480" cy="60" r="22"></circle>
             <path class="topo-icon" d="M469,54 h22 v8 h-22 z M472,62 v4 M478,62 v4 M484,62 v4" transform="translate(0,-6)"></path>
             <text class="topo-node-label" x="480" y="76">s2</text>
             <text class="topo-node-sub" x="480" y="34">switch</text></g>
 
-          <!-- h4: cloud icon -->
           <g class="topo-node-group" id="node-h4" data-tip="h4 (cloud-gpu-burst) · 10.0.0.4 · :80">
             <circle class="topo-node-circle" cx="580" cy="60" r="24"></circle>
             <path class="topo-icon" d="M567,63 a6,6 0 0 1 0,-12 a8,8 0 0 1 15,-2 a6,6 0 0 1 2,14 z" transform="translate(0,-6)"></path>
             <text class="topo-node-label" x="580" y="76">h4</text>
-            <text class="topo-node-sub" x="580" y="94">cloud-gpu-burst</text>
+            <text class="topo-node-sub" x="580" y="94">cloud-burst</text>
             <text class="topo-node-ip" x="580" y="106">10.0.0.4</text></g>
 
           <text class="topo-status-text" x="10" y="252" id="topoStatusText">Waiting for traffic...</text>
@@ -174,7 +168,7 @@
           <tr><td>Client source</td><td id="rt-client">h1 · 10.0.0.1</td></tr>
           <tr><td>Requested (virtual) service IP</td><td id="rt-vip">10.0.0.100 : 80</td></tr>
           <tr><td>Subnet in use</td><td>10.0.0.0 / 24 (255.255.255.0)</td></tr>
-          <tr><td>VLAN segmentation</td><td>VLAN 10 (private GPU) · VLAN 20 (cloud-burst GPU)</td></tr>
+          <tr><td>Network segments</td><td>Private and cloud paths (controller-managed)</td></tr>
           <tr><td>Routing mode</td><td><span class="mode-badge" id="rt-mode">Dynamic — SDN Weighted Load Balancing</span></td></tr>
           <tr><td>Resolved backend</td><td id="rt-backend">—</td></tr>
           <tr><td>Backend real IP : port</td><td id="rt-backend-ip">—</td></tr>
@@ -275,16 +269,14 @@ function drawBg() {
 requestAnimationFrame(drawBg);
 
 // ---------- Core dashboard logic ----------
-const STATUS_URL = "http://127.0.0.1:8080/status";
-const THRESHOLD_URL = "http://127.0.0.1:8080/set-threshold";
-const HISTORY_DB_URL = "http://127.0.0.1:8080/history-db";
-const NAMES = {h2: "Private GPU Node A (h2) · VLAN 10", h3: "Private GPU Node B (h3) · VLAN 10", h4: "Cloud-Burst GPU Node (h4) · VLAN 20"};
+const STATUS_URL = "http://127.0.0.1:8082/status";
+const THRESHOLD_URL = "http://127.0.0.1:8082/set-threshold";
+const HISTORY_DB_URL = "http://127.0.0.1:8082/history-db";
+const NAMES = {h2: "Private GPU Node A (h2)", h3: "Private GPU Node B (h3)", h4: "Cloud-Burst GPU Node (h4)"};
 const BACKEND_IPS = {h2: "10.0.0.2", h3: "10.0.0.3", h4: "10.0.0.4"};
 
-const canvas = document.getElementById("historyChart");
-const ctx = canvas.getContext("2d");
-const longCanvas = document.getElementById("longHistoryChart");
-const longCtx = longCanvas.getContext("2d");
+const liveChart = buildLiveChart(document.getElementById("historyChart"));
+const longChart = buildLongChart(document.getElementById("longHistoryChart"));
 
 const slider = document.getElementById("thresholdSlider");
 const sliderValue = document.getElementById("sliderValue");
@@ -414,7 +406,6 @@ function updateTopology(decision, offloading) {
     ? "Traffic dynamically offloaded to cloud (h4) due to congestion"
     : `Traffic routed locally to ${decision} (least loaded private server)`;
 
-  // Routing info panel
   document.getElementById("rt-backend").textContent = NAMES[decision] || decision;
   document.getElementById("rt-backend-ip").textContent = (BACKEND_IPS[decision] || "—") + " : 80";
   document.getElementById("rt-mode").textContent = isCloud
@@ -423,51 +414,12 @@ function updateTopology(decision, offloading) {
   document.getElementById("hopChain").innerHTML = HOP_CHAINS[decision] || "";
 }
 
-function drawLineChart(context, canvasEl, points, threshold) {
-  const w = canvasEl.width, h = canvasEl.height;
-  context.clearRect(0, 0, w, h);
-  if (points.length < 2) {
-    context.fillStyle = "#555";
-    context.font = "13px 'Share Tech Mono', monospace";
-    context.fillText("Collecting data...", 10, h/2);
-    return;
-  }
-  const allVals = points.flatMap(p => [p.h2, p.h3, p.h4]);
-  const maxVal = Math.max((threshold || 0) * 1.3, ...allVals, 1);
-  const stepX = w / (points.length - 1);
-  function yFor(v) { return h - (v / maxVal) * (h - 20) - 10; }
-
-  if (threshold) {
-    context.strokeStyle = "#e53935";
-    context.setLineDash([5, 4]);
-    context.beginPath();
-    context.moveTo(0, yFor(threshold));
-    context.lineTo(w, yFor(threshold));
-    context.stroke();
-    context.setLineDash([]);
-  }
-
-  function drawLine(key, color) {
-    context.strokeStyle = color;
-    context.lineWidth = 2;
-    context.beginPath();
-    points.forEach((p, i) => {
-      const x = i * stepX, y = yFor(p[key]);
-      if (i === 0) context.moveTo(x, y); else context.lineTo(x, y);
-    });
-    context.stroke();
-  }
-  drawLine("h2", "#4caf50");
-  drawLine("h3", "#66bb6a");
-  drawLine("h4", "#2196f3");
-}
-
 async function refreshLongHistory() {
   const minutes = document.getElementById("rangeSelect").value;
   try {
     const res = await fetch(`${HISTORY_DB_URL}?minutes=${minutes}`);
     const data = await res.json();
-    drawLineChart(longCtx, longCanvas, data.history, null);
+    updateLongChart(longChart, data.history);
     document.getElementById("dbStats").textContent =
       `${data.total_samples_logged.toLocaleString()} load samples · ${data.total_events_logged.toLocaleString()} events logged (persists across restarts)`;
   } catch (e) {
@@ -513,7 +465,7 @@ async function refresh() {
       barsDiv.appendChild(row);
     }
 
-    drawLineChart(ctx, canvas, data.history, threshold);
+    updateLiveChart(liveChart, data.history, threshold);
 
     const logDiv = document.getElementById("eventLog");
     logDiv.innerHTML = data.event_log.length === 0

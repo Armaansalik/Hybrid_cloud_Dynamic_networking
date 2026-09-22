@@ -16,7 +16,6 @@ START_TIME = time.time()
 @app.route('/')
 def index():
     uptime = round(time.time() - START_TIME, 1)
-    # simulated inference latency, just for realism in the response
     sim_latency_ms = round(random.uniform(8, 22), 1)
     return jsonify({
         'served_by': app.config['NAME'],
