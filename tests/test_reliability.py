@@ -131,6 +131,12 @@ class ReliabilityPolicyTests(unittest.TestCase):
 
 
 class ReliabilityConfigurationTests(unittest.TestCase):
+    def test_runtime_threshold_must_be_positive(self):
+        config = ReliabilityConfig.from_mapping({"threshold_bytes_per_sec": 5_000})
+
+        with self.assertRaises(ValueError):
+            config.with_threshold(0)
+
     def test_invalid_configuration_falls_back_to_defaults(self):
         with tempfile.TemporaryDirectory() as directory:
             path = os.path.join(directory, "reliability.json")

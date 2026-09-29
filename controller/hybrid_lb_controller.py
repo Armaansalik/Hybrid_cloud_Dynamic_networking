@@ -4,7 +4,6 @@ import time
 import random
 import sys
 import os
-from dataclasses import replace
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from db import log_event, log_load_sample, recent_events, event_count, sample_count, get_long_history
@@ -124,11 +123,11 @@ class HybridCloudLoadBalancer(app_manager.RyuApp):
 
     def set_threshold(self, new_value):
         old = self.threshold
-        self.threshold = new_value
-        self._log_event(f"Threshold changed: {old:.0f} -> {new_value:.0f} B/s")
-        self.reliability_config = replace(self.reliability_config, threshold_bytes_per_sec=new_value)
+        self.reliability_config = self.reliability_config.with_threshold(new_value)
+        self.threshold = self.reliability_config.threshold_bytes_per_sec
+        self._log_event(f"Threshold changed: {old:.0f} -> {self.threshold:.0f} B/s")
         self.reliability_policy.config = self.reliability_config
-        self.logger.info("Threshold updated to %.0f B/s", new_value)
+        self.logger.info("Threshold updated to %.0f B/s", self.threshold)
 
     def _log_event(self, message):
         self.event_log.appendleft({'time': time.strftime('%H:%M:%S'), 'message': message})

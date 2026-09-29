@@ -6,7 +6,7 @@ without Mininet or an OpenFlow switch and is adapted by the controller.
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 
 DEFAULT_CONFIG = {
@@ -51,6 +51,12 @@ class ReliabilityConfig:
         if config.drop_rate_warning_pct < 0:
             raise ValueError("drop_rate_warning_pct cannot be negative")
         return config
+
+    def with_threshold(self, threshold_bytes_per_sec):
+        threshold = float(threshold_bytes_per_sec)
+        if threshold <= 0:
+            raise ValueError("threshold_bytes_per_sec must be greater than zero")
+        return replace(self, threshold_bytes_per_sec=threshold)
 
 
 def load_reliability_config(path):
