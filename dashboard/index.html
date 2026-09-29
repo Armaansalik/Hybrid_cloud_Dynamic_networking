@@ -177,6 +177,16 @@
         <div class="hop-chain" id="hopChain">h1 (10.0.0.1) → ...</div>
       </div>
 
+      <div class="panel" id="reliabilityPanel">
+        <h2>Reliability &amp; Congestion Control</h2>
+        <table class="route-table">
+          <tr><td>Policy mode</td><td id="reliabilityMode">--</td></tr>
+          <tr><td>Decision reason</td><td id="reliabilityReason">--</td></tr>
+          <tr><td>Activation / recovery samples</td><td id="reliabilitySamples">--</td></tr>
+        </table>
+        <div class="db-stats" id="reliabilityMetrics">Waiting for controller telemetry...</div>
+      </div>
+
       <div id="bars"></div>
       <div class="threshold-note" id="threshold-note"></div>
 
@@ -428,6 +438,26 @@ async function refreshLongHistory() {
 }
 
 async function refresh() {
+function reliabilityValue(value, suffix) {
+  return Number.isFinite(value) ? value.toLocaleString() + suffix : "--";
+}
+
+function renderReliability(data) {
+  const reliability = data.reliability || {};
+  document.getElementById("reliabilityMode").textContent = reliability.mode || "--";
+  document.getElementById("reliabilityReason").textContent = reliability.reason || "--";
+  const activation = reliability.activation_count;
+  const recovery = reliability.recovery_count;
+  document.getElementById("reliabilitySamples").textContent =
+    Number.isFinite(activation) && Number.isFinite(recovery) ? activation + " / " + recovery : "--";
+  const entries = Object.entries(data.backends || {}).map(([name, backend]) => {
+    const smoothed = reliabilityValue(backend.smoothed_bytes_per_sec, " B/s");
+    const drops = reliabilityValue(backend.drop_rate_pct, "% drop");
+    return (NAMES[name] || name) + ": " + smoothed + ", " + drops + ", " + (backend.health || "unknown");
+  });
+  document.getElementById("reliabilityMetrics").textContent =
+    entries.length ? entries.join(" | ") : "Waiting for controller telemetry...";
+}
   try {
     const res = await fetch(STATUS_URL);
     const data = await res.json();
@@ -446,6 +476,7 @@ async function refresh() {
       ? "Spike ongoing for " + data.spike_duration_sec + "s" : "";
 
     updateTopology(data.last_decision, data.threshold_exceeded);
+    renderReliability(data);
 
     const barsDiv = document.getElementById("bars");
     barsDiv.innerHTML = "";
