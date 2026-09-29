@@ -4,9 +4,11 @@ import time
 import random
 import sys
 import os
+from dataclasses import replace
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from db import log_event, log_load_sample, recent_events, event_count, sample_count, get_long_history
+from reliability import CounterSnapshot, ReliabilityPolicy, TelemetryTracker, load_reliability_config
 
 from collections import deque
 from webob import Response
@@ -102,10 +104,16 @@ class HybridCloudLoadBalancer(app_manager.RyuApp):
         self.mac_to_port = {}
         self._prev_byte_count = {}
         self.port_load = {}
+        config_path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'config', 'reliability.json')
+        self.reliability_config = load_reliability_config(config_path)
+        self.telemetry_tracker = TelemetryTracker(self.reliability_config.ewma_alpha)
+        self.backend_telemetry = {}
+        self.reliability_policy = ReliabilityPolicy(self.reliability_config)
+        self.last_reliability_reason = 'private capacity available'
         self.last_decision = None
         self.last_threshold_exceeded = False
         self.spike_started_at = None
-        self.threshold = 5_000
+        self.threshold = self.reliability_config.threshold_bytes_per_sec
         self.last_offload_probability = 0.0
         self.history = deque(maxlen=HISTORY_LENGTH)
         self.event_log = deque(maxlen=EVENT_LOG_LENGTH)
@@ -118,6 +126,8 @@ class HybridCloudLoadBalancer(app_manager.RyuApp):
         old = self.threshold
         self.threshold = new_value
         self._log_event(f"Threshold changed: {old:.0f} -> {new_value:.0f} B/s")
+        self.reliability_config = replace(self.reliability_config, threshold_bytes_per_sec=new_value)
+        self.reliability_policy.config = self.reliability_config
         self.logger.info("Threshold updated to %.0f B/s", new_value)
 
     def _log_event(self, message):
@@ -127,11 +137,13 @@ class HybridCloudLoadBalancer(app_manager.RyuApp):
     def get_status(self):
         backends = {}
         for name, b in BACKENDS.items():
+            telemetry = self.backend_telemetry.get(name, TelemetryTracker._empty_telemetry(name))
             backends[name] = {
                 'load_bytes_per_sec': round(self.backend_load(name), 1),
                 'is_cloud': b['cloud'],
                 'label': b['label'],
                 'ip': b['ip'],
+                **telemetry.as_dict(),
             }
         spike_duration = None
         if self.spike_started_at is not None:
@@ -142,6 +154,12 @@ class HybridCloudLoadBalancer(app_manager.RyuApp):
             'last_decision': self.last_decision,
             'threshold_exceeded': self.last_threshold_exceeded,
             'offload_probability_pct': round(self.last_offload_probability * 100, 1),
+            'reliability': {
+                'mode': self.reliability_policy.mode,
+                'reason': self.last_reliability_reason,
+                'activation_count': self.reliability_policy.activation_count,
+                'recovery_count': self.reliability_policy.recovery_count,
+            },
             'spike_duration_sec': spike_duration,
             'history': list(self.history),
             'event_log': list(self.event_log),
@@ -192,56 +210,42 @@ class HybridCloudLoadBalancer(app_manager.RyuApp):
         dpid = ev.msg.datapath.id
         for stat in ev.msg.body:
             key = (dpid, stat.port_no)
-            current_total = stat.tx_bytes + stat.rx_bytes
-            previous_total = self._prev_byte_count.get(key)
-            if previous_total is not None:
-                delta = max(0, current_total - previous_total)
-                self.port_load[key] = delta / float(MONITOR_INTERVAL_SEC)
-            self._prev_byte_count[key] = current_total
+            backend_name = next((name for name, backend in BACKENDS.items() if backend['dpid'] == dpid and backend['port'] == stat.port_no), None)
+            if backend_name is None:
+                continue
+            snapshot = CounterSnapshot(stat.tx_bytes + stat.rx_bytes, stat.tx_packets + stat.rx_packets, stat.tx_dropped + stat.rx_dropped, stat.tx_errors + stat.rx_errors)
+            telemetry = self.telemetry_tracker.update(backend_name, snapshot, MONITOR_INTERVAL_SEC)
+            self.backend_telemetry[backend_name] = telemetry
+            self.port_load[key] = telemetry.bytes_per_sec
 
     def backend_load(self, name):
         b = BACKENDS[name]
         return self.port_load.get((b['dpid'], b['port']), 0.0)
 
     def choose_backend(self):
-        """Gradual/proportional offloading: instead of an instant on/off
-        switch, the probability of sending a request to the cloud rises
-        smoothly from 0% at the threshold to 100% at FULL_OFFLOAD_MULTIPLIER
-        times the threshold."""
-        private_names = [n for n, b in BACKENDS.items() if not b['cloud']]
-        loads = {n: self.backend_load(n) for n in private_names}
-        best_private = min(loads, key=loads.get)
-        best_load = loads[best_private]
-
-        if best_load <= self.threshold:
-            probability = 0.0
-        else:
-            excess_ratio = (best_load - self.threshold) / (self.threshold * (FULL_OFFLOAD_MULTIPLIER - 1))
-            probability = min(1.0, max(0.0, excess_ratio))
-        self.last_offload_probability = probability
-
-        send_to_cloud = probability > 0 and random.random() < probability
-
-        if send_to_cloud:
-            cloud_name = next(n for n, b in BACKENDS.items() if b['cloud'])
-            self.logger.info(
-                "[GRADUAL OFFLOAD] private load=%.0f B/s, offload probability=%.0f%% -> CLOUD (%s)",
-                best_load, probability * 100, cloud_name)
-            if not self.last_threshold_exceeded:
-                self.spike_started_at = time.time()
-                self._log_event(f"Spike detected ({best_load:.0f} B/s) — gradual offload begins ({probability*100:.0f}%)")
-            self.last_decision = cloud_name
-            self.last_threshold_exceeded = True
-            return cloud_name
-
-        if self.last_threshold_exceeded and probability == 0.0:
-            self._log_event(f"Load recovered — back to local routing ({best_private})")
+        """Choose the backend for a newly arrived virtual-IP TCP flow."""
+        private_names = [name for name, backend in BACKENDS.items() if not backend['cloud']]
+        private_telemetry = {}
+        for name in private_names:
+            telemetry = self.backend_telemetry.get(name, TelemetryTracker._empty_telemetry(name))
+            private_telemetry[name] = telemetry
+        previous_mode = self.reliability_policy.mode
+        decision = self.reliability_policy.evaluate(private_telemetry, random.random())
+        self.last_offload_probability = decision.offload_probability
+        self.last_reliability_reason = decision.reason
+        self.last_decision = decision.backend
+        self.last_threshold_exceeded = decision.mode == 'offloading'
+        if previous_mode == 'local' and decision.mode == 'offloading':
+            self.spike_started_at = time.time()
+            self._log_event('Cloud offload activated: ' + decision.reason)
+        elif previous_mode == 'offloading' and decision.mode == 'local':
             self.spike_started_at = None
-        self.last_threshold_exceeded = probability > 0
-        self.logger.info("[LOCAL] routing to %s (load=%.0f B/s, offload prob=%.0f%%)",
-                          best_private, best_load, probability * 100)
-        self.last_decision = best_private
-        return best_private
+            self._log_event('Private routing recovered: ' + decision.reason)
+        self.logger.info(
+            '[ROUTING] %s -> %s (%s, %.0f%% cloud probability)',
+            decision.mode, decision.backend, decision.reason, decision.offload_probability * 100,
+        )
+        return decision.backend
 
     @set_ev_cls(ofp_event.EventOFPPacketIn, MAIN_DISPATCHER)
     def packet_in_handler(self, ev):

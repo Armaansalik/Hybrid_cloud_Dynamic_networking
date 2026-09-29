@@ -27,6 +27,15 @@ def sample(name, load, drop_rate=0.0, health="healthy"):
 
 
 class TelemetryTrackerTests(unittest.TestCase):
+    def test_telemetry_serializes_dashboard_safe_health_values(self):
+        telemetry = sample("h2", 1_000)
+
+        serialized = telemetry.as_dict()
+
+        self.assertEqual(serialized["health"], "healthy")
+        self.assertEqual(serialized["smoothed_bytes_per_sec"], 1_000)
+        self.assertIn("drop_rate_pct", serialized)
+
     def test_first_sample_establishes_a_zero_rate_baseline(self):
         tracker = TelemetryTracker(alpha=0.4)
 

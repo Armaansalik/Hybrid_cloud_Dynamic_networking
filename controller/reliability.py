@@ -82,6 +82,18 @@ class BackendTelemetry:
     has_measurement: bool
     health: str
 
+    def as_dict(self):
+        return {
+            "bytes_per_sec": round(self.bytes_per_sec, 1),
+            "smoothed_bytes_per_sec": round(self.smoothed_bytes_per_sec, 1),
+            "packets_per_sec": round(self.packets_per_sec, 1),
+            "drops_per_sec": round(self.drops_per_sec, 1),
+            "errors_per_sec": round(self.errors_per_sec, 1),
+            "drop_rate_pct": round(self.drop_rate_pct, 3),
+            "has_measurement": self.has_measurement,
+            "health": self.health,
+        }
+
 
 @dataclass(frozen=True)
 class RoutingDecision:
