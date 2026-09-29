@@ -1,0 +1,8 @@
+{
+  "threshold_bytes_per_sec": 5000,
+  "ewma_alpha": 0.4,
+  "recovery_threshold_ratio": 0.65,
+  "activation_samples": 2,
+  "recovery_samples": 3,
+  "drop_rate_warning_pct": 1.0
+}
