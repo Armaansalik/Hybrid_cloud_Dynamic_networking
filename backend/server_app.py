@@ -11,12 +11,26 @@ from flask import Flask, jsonify
 
 app = Flask(__name__)
 START_TIME = time.time()
+REQUEST_COUNT = 0
+SUCCESS_COUNT = 0
+TOTAL_SIMULATED_LATENCY_MS = 0.0
+
+def reset_metrics():
+    """Reset process-local counters; used by automated tests only."""
+    global REQUEST_COUNT, SUCCESS_COUNT, TOTAL_SIMULATED_LATENCY_MS
+    REQUEST_COUNT = 0
+    SUCCESS_COUNT = 0
+    TOTAL_SIMULATED_LATENCY_MS = 0.0
 
 
 @app.route('/')
 def index():
     uptime = round(time.time() - START_TIME, 1)
+    global REQUEST_COUNT, SUCCESS_COUNT, TOTAL_SIMULATED_LATENCY_MS
     sim_latency_ms = round(random.uniform(8, 22), 1)
+    REQUEST_COUNT += 1
+    SUCCESS_COUNT += 1
+    TOTAL_SIMULATED_LATENCY_MS += sim_latency_ms
     return jsonify({
         'served_by': app.config['NAME'],
         'node_type': app.config.get('NODE_TYPE', 'inference-node'),
@@ -29,6 +43,19 @@ def index():
 @app.route('/health')
 def health():
     return "ok\n"
+
+@app.route('/metrics')
+def metrics():
+    average_latency = TOTAL_SIMULATED_LATENCY_MS / REQUEST_COUNT if REQUEST_COUNT else 0.0
+    return jsonify({
+        'served_by': app.config.get('NAME', 'unconfigured'),
+        'node_type': app.config.get('NODE_TYPE', 'inference-node'),
+        'request_count': REQUEST_COUNT,
+        'success_count': SUCCESS_COUNT,
+        'average_simulated_latency_ms': round(average_latency, 1),
+        'uptime_sec': round(time.time() - START_TIME, 1),
+    })
+
 
 
 if __name__ == '__main__':
