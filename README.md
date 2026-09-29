@@ -57,6 +57,12 @@ h1 bash testing/demo_cycle.sh
 Open <http://localhost:8081/index.html> in Windows. The dashboard reads its
 controller data from `http://127.0.0.1:8082`.
 
+## Reliability demonstration
+
+The controller uses smoothed OpenFlow port telemetry, packet-drop signals, and sustained activation/recovery windows before changing the path for a new TCP connection. The dashboard shows policy mode, decision reason, smoothed B/s, and drop-rate signals.
+
+For repeatable HTTP results and an independent UDP packet-loss measurement, see [Reliability testing](docs/RELIABILITY_TESTING.md).
+
 ## Expected checks
 
 - The first curl returns JSON with `served_by: private-gpu-A` or `private-gpu-B`.
