@@ -8,6 +8,7 @@ from Windows drives or the former `~/projects/hybrid-cloud-sdn-project` folder.
 
 ```
 HybridCloudSDN/
+├── config/                # common reliability settings
 ├── .venv/                 # project-only Python 3.8 environment
 ├── backend/               # simulated private and cloud services
 ├── controller/            # Ryu routing policy, REST API, SQLite layer

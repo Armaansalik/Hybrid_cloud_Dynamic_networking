@@ -8,6 +8,6 @@ services:
   test:
     build: .
     command: >
-      sh -c "python -m py_compile controller/hybrid_lb_controller.py controller/db.py controller/routing.py backend/server_app.py topology/auto_deploy_topology.py
+      sh -c "python -m py_compile controller/hybrid_lb_controller.py controller/db.py controller/routing.py controller/reliability.py backend/server_app.py topology/auto_deploy_topology.py
       && python -m unittest discover -s tests -v"
     profiles: ["test"]

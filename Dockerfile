@@ -9,6 +9,8 @@ RUN pip install --no-cache-dir --upgrade pip \
 
 COPY backend ./backend
 COPY controller ./controller
+COPY config ./config
+COPY testing ./testing
 COPY dashboard ./dashboard
 COPY tests ./tests
 COPY topology ./topology

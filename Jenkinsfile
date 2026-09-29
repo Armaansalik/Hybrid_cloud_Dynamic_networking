@@ -15,6 +15,7 @@ pipeline {
             steps {
                 sh '''
                     python3 -m py_compile controller/hybrid_lb_controller.py
+                    python3 -m py_compile controller/reliability.py
                     python3 -m py_compile controller/db.py
                     python3 -m py_compile controller/routing.py
                     python3 -m py_compile backend/server_app.py
